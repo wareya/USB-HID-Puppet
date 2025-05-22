@@ -82,21 +82,21 @@ static uint8_t const hid_report_control_suffix[] = {
     0x09, 0x01,         // Usage (Vendor Usage 1)
 
     0xA1, 0x01,         // Collection (Application)
-        0x85, 0x7F,         // Report ID 0x7F (Return message)
-        0x15, 0x00,         // Logical Minimum (0)
-        0x25, 0xFF,         // Logical Maximum (255)
-        0x75, 0x08,         // Report Size (8 bits)
-        0x95, CMDLEN,       // Report Count (CMDLEN)
-        0x09, 0x01,         // Usage (Vendor Usage 1)
-        0x81, 0x02,         // Input (Data,Var,Abs)
+        0x85, 0x7F,     //   Report ID 0x7F (Return message, device->host)
+        0x15, 0x00,     //   Logical Minimum (0)
+        0x25, 0xFF,     //   Logical Maximum (255)
+        0x75, 0x08,     //   Report Size (8 bits)
+        0x95, CMDLEN,   //   Report Count (CMDLEN)
+        0x09, 0x01,     //   Usage (Vendor Usage 1)
+        0x81, 0x02,     //   Input (Data,Var,Abs)
         
-        0x85, 0x7E,         // Report ID 0x7E (Output report)
-        0x15, 0x00,         // Logical Minimum (0)
-        0x25, 0xFF,         // Logical Maximum (255)
-        0x75, 0x08,         // Report Size (8 bits)
-        0x95, CMDLEN,       // Report Count (CMDLEN)
-        0x09, 0x01,         // Usage (Vendor Usage 1)
-        0x91, 0x02,         // Output (Data,Var,Abs)
+        0x85, 0x7E,     //   Report ID 0x7E (Output report, host->device)
+        0x15, 0x00,     //   Logical Minimum (0)
+        0x25, 0xFF,     //   Logical Maximum (255)
+        0x75, 0x08,     //   Report Size (8 bits)
+        0x95, CMDLEN,   //   Report Count (CMDLEN)
+        0x09, 0x01,     //   Usage (Vendor Usage 1)
+        0x91, 0x02,     //   Output (Data,Var,Abs)
     0xC0                // End Collection
 };
 
@@ -128,8 +128,8 @@ uint8_t desc_configuration[] = {
     0x00,        // bCountryCode
     0x01,        // bNumDescriptors
     0x22,        // bDescriptorType[0] (HID)
-    (sizeof(hid_report_descriptor_default)) & 0xFF, // 26
-    (sizeof(hid_report_descriptor_default)) >> 8,   // 27
+    (sizeof(hid_report_descriptor_default)) & 0xFF, // 25
+    (sizeof(hid_report_descriptor_default)) >> 8,   // 26
 
     0x07,        // bLength
     0x05,        // bDescriptorType (Endpoint)
@@ -189,44 +189,71 @@ static uint8_t scratch_data_2[BUF_SIZE] = {};
 static uint8_t scratch_len_2 = 0;
 static uint8_t report_sent = 1;
 
-u16cnstp tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
+enum {
+    STRID_LANGID = 0,
+    STRID_MANUFACTURER,
+    STRID_PRODUCT,
+    STRID_SERIAL,
+};
+
+void fail(void)
+{
+    while(1)
+    {
+        gpio_put(LED_PIN, 1);
+        delay(250);
+        gpio_put(LED_PIN, 0);
+        delay(250);
+    }
+}
+
+u16cnstp tud_descriptor_string_cb(uint8_t index, uint16_t langid)
+{
     (void)langid;
     static uint16_t desc_str[32];
     const char* string_desc;
 
     switch (index) {
-        case 0:
-            desc_str[0] = (3 << 8) | (2 * 1 + 2);
+        case STRID_LANGID:
+            desc_str[0] = 0x0304;
             desc_str[1] = 0x0409;
             return desc_str;
-        case 1: string_desc = "Definite Systems"; break;
-        case 2: string_desc = "HID Puppet Device"; break;
-        case 3: string_desc = "1000001A"; break;
-        default: return NULL;
+        case STRID_MANUFACTURER:
+            string_desc = "Definite Systems"; break;
+        case STRID_PRODUCT:
+            string_desc = "HID Puppet Device"; break;
+        case STRID_SERIAL:
+            string_desc = "1000001A"; break;
+        default:
+            return NULL;
     }
 
     uint8_t len = strlen(string_desc);
-    if (len > 31) len = 31;
+    if (len > 31)
+        fail();
 
-    desc_str[0] = (3 << 8) | (2 * len + 2);
+    desc_str[0] = 0x0302 + 2 * len;
     for (uint8_t i = 0; i < len; i++)
         desc_str[i + 1] = string_desc[i];
 
     return desc_str;
 }
 
-u8cnstp tud_hid_descriptor_report_cb(uint8_t interface) {
+u8cnstp tud_hid_descriptor_report_cb(uint8_t interface)
+{
     if (interface == 0)
         return descriptor;
     else
         return ctrl_descriptor;
 }
 
-u8cnstp tud_descriptor_device_cb(void) {
+u8cnstp tud_descriptor_device_cb(void)
+{
     return desc_device;
 }
 
-u8cnstp tud_descriptor_configuration_cb(uint8_t index) {
+u8cnstp tud_descriptor_configuration_cb(uint8_t index)
+{
     (void)index;
     return desc_configuration;
 }
@@ -242,11 +269,6 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
     (void)buffer;
     (void)reqlen;
     return 0;
-}
-
-void tud_umount_cb(void)
-{
-    gpio_put(LED_PIN, 1);
 }
 
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type,
@@ -274,7 +296,8 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     if (cmd == CMD_APPEND_DESC || cmd == CMD_RUNTIME_APPEND || cmd == CMD_RUNTIME_APPEND_2)
         len_data = report[1];
 
-    char reponse_report[CMDLEN] = {0};
+    char reponse_report[CMDLEN];
+    memset(reponse_report, 0, CMDLEN);
 
     switch (cmd)
     {
@@ -306,7 +329,7 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
 
             gpio_put(LED_PIN, 1);
             tud_disconnect();
-            sleep_ms(200);
+            sleep_ms(20); // sometimes needed to force re-enumeration so the host gets the new descriptor
             tud_connect();
         } break;
         case CMD_RUNTIME_START:
@@ -352,12 +375,12 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
             gpio_put(LED_PIN, 0);
             break;
         case CMD_REQ_HELLOWORLD:
+        {
             reponse_report[0] = CMDIN_HELLOWORLD;
             reponse_report[1] = 13;
             strncpy(reponse_report+2, "Hello, world!", 13);
             tud_hid_n_report(1, 0x7F, reponse_report, CMDLEN);
-            //gpio_put(LED_PIN, 1);
-            break;
+        } break;
         case CMD_PACKED:
         {
             buffer -= 1;
@@ -394,11 +417,12 @@ void send_report()
     report_sent = 1;
     sent = 1;
     tud_hid_n_report(0, report_data[0], report_data+1, report_len-1);
-    gpio_put(LED_PIN, ((int8_t)report_data[2]) < n);
+    gpio_put(LED_PIN, ((int8_t)report_data[3]) < n);
     n = !n;
 }
 
-int main() {
+int main()
+{
     gpio_init(LED_PIN);
     gpio_set_dir(LED_PIN, GPIO_OUT);
     gpio_put(LED_PIN, 0);
@@ -420,20 +444,24 @@ int main() {
     }
 }
 
-// Minimal MSC stubs
-
-bool tud_msc_test_unit_ready_cb(uint8_t lun) {
-    return true;
+// Nonfunctional MSC stubs to prevent linker errors
+bool tud_msc_test_unit_ready_cb(uint8_t lun)
+{
+    return false;
 }
-void tud_msc_capacity_cb(uint8_t lun, uint32_t* block_count, uint16_t* block_size) {}
-void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16], uint8_t product_rev[4]) {}
-int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize) {
+void tud_msc_capacity_cb(uint8_t lun, uint32_t* block_count, uint16_t* block_size) { }
+void tud_msc_inquiry_cb(uint8_t lun, uint8_t vendor_id[8], uint8_t product_id[16], uint8_t product_rev[4]) { }
+int32_t tud_msc_read10_cb(uint8_t lun, uint32_t lba, uint32_t offset, void* buffer, uint32_t bufsize)
+{
     return 1;
 }
-int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize) {
+int32_t tud_msc_write10_cb(uint8_t lun, uint32_t lba, uint32_t offset, uint8_t* buffer, uint32_t bufsize)
+{
     return 1;
 }
-int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void* buffer, uint16_t bufsize) {
+int32_t tud_msc_scsi_cb(uint8_t lun, uint8_t const scsi_cmd[16], void* buffer, uint16_t bufsize)
+{
     return 0;
 }
+
 }

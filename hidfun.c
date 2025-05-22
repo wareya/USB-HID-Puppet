@@ -315,14 +315,14 @@ int main(void)
     puts("waiting for reenumeration...");
     fflush(stdout);
     
-    Sleep(2000);
+    Sleep(100);
     
     hidHandle = OpenHidDevice();
     while (hidHandle == INVALID_HANDLE_VALUE)
     {
         printf("Trying again...\n");
         fflush(stdout);
-        Sleep(1000);
+        Sleep(100);
         hidHandle = OpenHidDevice();
     }
     
@@ -336,17 +336,8 @@ int main(void)
     
     while (j < 3000)
     {
-        if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+        if (!PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
         {
-            if (msg.message == WM_INPUT)
-                ProcessRawInput(msg.lParam);
-
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
-        else
-        {
-            //puts("a");
             j++;
             
             memset(outputReport + 1, 0, sizeof(outputReport) - 1);
@@ -373,18 +364,6 @@ int main(void)
             
             uint64_t start = (uint64_t)get_time_ms();
             
-            //if (!HidD_SetOutputReport(hidHandle, outputReport, sizeof(outputReport)))
-            //{
-            //    printf("HidD_SetOutputReport failed: %lu\n", GetLastError());
-            //    fflush(stdout);
-            //    Sleep(500);
-            //}
-            //else
-            //{
-            //    printf("Output report sent (%zu) (started at %zu)\n", (uint64_t)get_time_ms(), start);
-            //    fflush(stdout);
-            //}
-            
             HANDLE ev = CreateEvent(NULL, TRUE, FALSE, NULL);;
             
             start = (uint64_t)get_time_ms();
@@ -407,10 +386,14 @@ int main(void)
             uint64_t end = (uint64_t)get_time_ms();
             
             printf("Output report sent (%zu) (started at %zu)\n", (uint64_t)get_time_ms(), start);
-            
-            //while ((uint64_t)get_time_ms() == start) { }
-            
-            //Sleep(1);
+        }
+        else
+        {
+            if (msg.message == WM_INPUT)
+                ProcessRawInput(msg.lParam);
+
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
         }
     }
     
