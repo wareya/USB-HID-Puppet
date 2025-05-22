@@ -9,11 +9,9 @@ typedef uint8_t const* u8cnstp;
 
 #define CMDLEN 63
 
-#define CMD_CLEAR_DESC_BUF 0x01
-#define CMD_CLEAR_DESC_IMM 0x02
-#define CMD_APPEND_DESC 0x03
-#define CMD_APPEND_DEFAULT 0x04
-#define CMD_FINALIZE_DESC 0x05
+#define CMD_START_DESC 0x01
+#define CMD_APPEND_DESC 0x02
+#define CMD_FINALIZE_DESC 0x03
 
 #define CMD_RUNTIME_START 0x10
 #define CMD_RUNTIME_APPEND 0x11
@@ -28,9 +26,6 @@ typedef uint8_t const* u8cnstp;
 
 #define CMDIN_OKYESNO 0x20
 #define CMDIN_HELLOWORLD 0x80
-
-#define MODE_IMMEDIATE 0
-#define MODE_BUFFERED 1
 
 #define LED_PIN 25
 
@@ -133,8 +128,8 @@ uint8_t desc_configuration[] = {
     0x00,        // bCountryCode
     0x01,        // bNumDescriptors
     0x22,        // bDescriptorType[0] (HID)
-    (sizeof(hid_report_descriptor_default)) & 0xFF,
-    (sizeof(hid_report_descriptor_default)) >> 8,
+    (sizeof(hid_report_descriptor_default)) & 0xFF, // 26
+    (sizeof(hid_report_descriptor_default)) >> 8,   // 27
 
     0x07,        // bLength
     0x05,        // bDescriptorType (Endpoint)
@@ -193,7 +188,6 @@ static uint8_t scratch_len = 0;
 static uint8_t scratch_data_2[BUF_SIZE] = {};
 static uint8_t scratch_len_2 = 0;
 static uint8_t report_sent = 1;
-static uint8_t mode = MODE_IMMEDIATE;
 
 u16cnstp tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     (void)langid;
@@ -250,6 +244,11 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
     return 0;
 }
 
+void tud_umount_cb(void)
+{
+    gpio_put(LED_PIN, 1);
+}
+
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type,
                             const uint8_t* report, uint16_t len)
 {
@@ -272,41 +271,22 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     uint8_t len_data = 0;
     const uint8_t* buffer = report + 2;
 
-    if (cmd == CMD_APPEND_DESC || cmd == CMD_APPEND_DEFAULT || cmd == CMD_RUNTIME_APPEND || cmd == CMD_RUNTIME_APPEND_2)
+    if (cmd == CMD_APPEND_DESC || cmd == CMD_RUNTIME_APPEND || cmd == CMD_RUNTIME_APPEND_2)
         len_data = report[1];
 
     char reponse_report[CMDLEN] = {0};
 
     switch (cmd)
     {
-        case CMD_CLEAR_DESC_BUF:
+        case CMD_START_DESC:
         {
             if (reception_mode != 0) return;
             reception_mode = 1;
 
-            memset(descriptor, 0, sizeof(descriptor));
-            descriptor_len = 0;
+            memset(scratch_data, 0, sizeof(scratch_data));
             scratch_len = 0;
-            mode = MODE_BUFFERED;
-        } break;
-        case CMD_CLEAR_DESC_IMM:
-        {
-            if (reception_mode != 0) return;
-            reception_mode = 2;
-
-            memset(descriptor, 0, sizeof(descriptor));
-            descriptor_len = 0;
-            scratch_len = 0;
-            mode = MODE_IMMEDIATE;
         } break;
         case CMD_APPEND_DESC:
-        {
-            if (reception_mode != 1) return;
-
-            memcpy(descriptor + descriptor_len, buffer, len_data);
-            descriptor_len += len_data;
-        } break;
-        case CMD_APPEND_DEFAULT:
         {
             if (reception_mode != 1) return;
 
@@ -318,25 +298,20 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
             if (reception_mode != 1) return;
             reception_mode = 0;
 
-            memcpy(report_data, scratch_data, scratch_len);
-            report_len = scratch_len;
-            memcpy(report_data_2, scratch_data_2, scratch_len_2);
-            report_len_2 = scratch_len_2;
+            memcpy(descriptor, scratch_data, scratch_len);
+            descriptor_len = scratch_len;
 
-            memcpy(descriptor + descriptor_len, hid_report_control_suffix, sizeof(hid_report_control_suffix));
+            desc_configuration[25] = descriptor_len & 0xFF;
+            desc_configuration[26] = descriptor_len >> 8;
 
-            uint16_t total_len = descriptor_len + sizeof(hid_report_control_suffix);
-
-            desc_configuration[26] = total_len & 0xFF;
-            desc_configuration[27] = total_len >> 8;
-
+            gpio_put(LED_PIN, 1);
             tud_disconnect();
-            sleep_ms(100);
+            sleep_ms(200);
             tud_connect();
         } break;
         case CMD_RUNTIME_START:
         {
-            uint8_t ok = reception_mode == 0 && (mode != MODE_BUFFERED || report_sent);
+            uint8_t ok = reception_mode == 0;
             reponse_report[0] = CMDIN_OKYESNO;
             reponse_report[1] = ok;
             tud_hid_n_report(1, 0x7F, reponse_report, CMDLEN);

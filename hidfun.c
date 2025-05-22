@@ -11,18 +11,16 @@
 // WARNING: Largely AI-generated, do not use in production code. MEANT ONLY AS A USAGE EXAMPLE.
 
 // Windows example.
-// -lhid -lsetupapi -luser32
+// -lhid -lsetupapi -luser32 -lwinmm
 
 #define CMDLEN 64
 
 #define VENDOR_ID  0xE719
 #define PRODUCT_ID 0x3EAF
 
-#define CMD_CLEAR_DESC_BUF 0x01
-#define CMD_CLEAR_DESC_IMM 0x02
-#define CMD_APPEND_DESC 0x03
-#define CMD_APPEND_DEFAULT 0x04
-#define CMD_FINALIZE_DESC 0x05
+#define CMD_START_DESC 0x01
+#define CMD_APPEND_DESC 0x02
+#define CMD_FINALIZE_DESC 0x03
 
 #define CMD_RUNTIME_START 0x10
 #define CMD_RUNTIME_APPEND 0x11
@@ -225,6 +223,35 @@ double get_time_ms(void) {
     return (1000.0 * now.QuadPart) / frequency.QuadPart;
 }
 
+static uint8_t const hid_report_descriptor_alt[] = {
+    0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
+    0x09, 0x02,        // Usage (Mouse)
+    0xA1, 0x01,        // Collection (Application)
+    0x85, 0x01,        // Report ID 1 for mouse
+    0x09, 0x01,        //   Usage (Pointer)
+    0xA1, 0x00,        //   Collection (Physical)
+
+    0x05, 0x01,        //     Usage Page (Generic Desktop Ctrls)
+    0x09, 0x31,        //     Usage (Y)
+    0x09, 0x30,        //     Usage (X)
+    0x15, 0x80,        //     Logical Minimum (-128)
+    0x25, 0x7F,        //     Logical Maximum (127)
+    0x75, 0x08,        //     Report Size (8)
+    0x95, 0x02,        //     Report Count (2)
+    0x81, 0x06,        //     Input (Data,Var,Rel,No Wrap,Linear,Preferred State,No Null Position)
+
+    0x05, 0x09,        //     Usage Page (Button)
+    0x19, 0x01,        //     Usage Minimum (0x01)
+    0x29, 0x08,        //     Usage Maximum (0x08)
+    0x15, 0x00,        //     Logical Minimum (0)
+    0x25, 0x01,        //     Logical Maximum (1)
+    0x95, 0x08,        //     Report Count (8)
+    0x75, 0x01,        //     Report Size (1)
+    0x81, 0x02,        //     Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+
+    0xC0,              //   End Collection
+    0xC0,              // End Collection
+};
 int main(void)
 {
     timeBeginPeriod(1);
@@ -254,15 +281,6 @@ int main(void)
     
     HidD_SetNumInputBuffers(hidHandle, 512);
     
-    // flush input buffer
-    while (PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE) && GetMessage(&msg, NULL, 0, 0))
-    {
-        if (msg.message == WM_INPUT)
-            ProcessRawInput(msg.lParam);
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-
     // Example output report to send (adjust to your device report format)
     BYTE outputReport[CMDLEN] = {0};
     outputReport[0] = 0x7E;
@@ -272,7 +290,42 @@ int main(void)
         printf("HidD_SetOutputReport failed: %lu\n", GetLastError());
     else
         printf("Output report sent (asked for hello-world)\n");
-
+    
+    // flush input buffer
+    while (PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE) && GetMessage(&msg, NULL, 0, 0))
+    {
+        if (msg.message == WM_INPUT)
+            ProcessRawInput(msg.lParam);
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+    
+    outputReport[1] = CMD_START_DESC;
+    HidD_SetOutputReport(hidHandle, outputReport, sizeof(outputReport));
+    
+    outputReport[1] = CMD_APPEND_DESC;
+    outputReport[2] = sizeof(hid_report_descriptor_alt);
+    for (int i = 0; i < sizeof(hid_report_descriptor_alt); i++)
+        outputReport[i+3] = hid_report_descriptor_alt[i];
+    HidD_SetOutputReport(hidHandle, outputReport, sizeof(outputReport));
+    
+    outputReport[1] = CMD_FINALIZE_DESC;
+    HidD_SetOutputReport(hidHandle, outputReport, sizeof(outputReport));
+    
+    puts("waiting for reenumeration...");
+    fflush(stdout);
+    
+    Sleep(2000);
+    
+    hidHandle = OpenHidDevice();
+    while (hidHandle == INVALID_HANDLE_VALUE)
+    {
+        printf("Trying again...\n");
+        fflush(stdout);
+        Sleep(1000);
+        hidHandle = OpenHidDevice();
+    }
+    
     puts("starting loop...");
     fflush(stdout);
     // Message loop to receive raw input
