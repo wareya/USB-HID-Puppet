@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/855c75d8-5e8f-429c-9649-2b97fad7b384
 
 You can use this to simulate arbitrary input devices entirely from user-privilege-level software, without any drivers or admin or root privileges, using nothing but a cheap toy USB microcontroller platform like the Raspberry Pi Pico 2 or anything similar.
 
-This has four  purposes:
+This has four purposes:
 
 1) It's a good accessibility tool. You can use this technique to translate from one input device to any other input device without needing a driver, on any platform that supports raw HID messages, which are essential to all kinds of mundane user-level software like controlling the LEDs or settings on a mouse.
 2) You can automate debugging or unit test tasks that require real-looking user input.
