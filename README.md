@@ -4,7 +4,9 @@ This repository has:
 - An Arduino IDE project implementing a host-controllable USB HID input device.
 - A test program to run on a host Window machine to verify that it works and demonstrate how to connect to it and talk to it. The test program makes a virtual mouse that spins the cursor in circles for a few seconds.
 
-Compile and upload the Arduino IDE project to a microcontroller platform like the Raspberry Pi Pico 2. Then compile and run test.c on a windows machine (link: `-lhid -lsetupapi -lwinmm`).
+Compile and upload the Arduino IDE project to a microcontroller platform like the Raspberry Pi Pico 2, keeping it connected. Then compile and run test.c on a windows machine (link: `-lhid -lsetupapi -lwinmm`).
+
+https://github.com/user-attachments/assets/855c75d8-5e8f-429c-9649-2b97fad7b384
 
 You can use this to simulate arbitrary input devices entirely from user-privilege-level software, without any drivers or admin or root privileges, using nothing but a cheap toy USB microcontroller platform like the Raspberry Pi Pico 2 or anything similar.
 
