@@ -195,7 +195,11 @@ static uint8_t const hid_report_descriptor_alt[] = {
 };
 
 double get_time_ms(void) {
-    return GetTickCount();
+    LARGE_INTEGER time;
+    LARGE_INTEGER frequency;
+    QueryPerformanceFrequency(&frequency); 
+    QueryPerformanceCounter(&time);
+    return time.QuadPart * 1000 / (double)frequency.QuadPart;
 }
 
 int main(void)
