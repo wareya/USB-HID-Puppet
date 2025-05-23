@@ -144,7 +144,7 @@ BOOL RegisterRawInputForHid(HWND hwnd)
 {
     RAWINPUTDEVICE rid[1];
     
-    rid[0].usUsagePage = 0xFF;   // Vendor-defined
+    rid[0].usUsagePage = 0xFF; // Vendor-defined
     rid[0].usUsage = 0x00;
     rid[0].dwFlags = RIDEV_INPUTSINK | RIDEV_PAGEONLY;
     rid[0].hwndTarget = hwnd;
