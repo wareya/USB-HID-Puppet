@@ -417,7 +417,7 @@ void send_report()
     report_sent = 1;
     sent = 1;
     tud_hid_n_report(0, report_data[0], report_data+1, report_len-1);
-    gpio_put(LED_PIN, ((int8_t)report_data[3]) < n);
+    gpio_put(LED_PIN, ((int8_t)report_data[1]) < n);
     n = !n;
 }
 
