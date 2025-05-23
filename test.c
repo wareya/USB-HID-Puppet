@@ -6,8 +6,11 @@
 #include <stdint.h>
 #include <math.h>
 
+/////
 // Windows example.
+// See the comment above hid_report_descriptor_alt
 // -lhid -lsetupapi -lwinmm
+/////
 
 #define CMDLEN 64
 
@@ -156,14 +159,57 @@ void handle_input(MSG msg)
     free(rawinput);
 }
 
+/////
+// Swap the X and Y usage lines and the clockwiseness of the input test will change.
+// That's proof that the descriptor override works.
+/////
+
+static uint8_t const hid_report_descriptor_alt[] = {
+    0x05, 0x01,        // Usage Page (Generic Desktop Ctrls)
+    0x09, 0x02,        // Usage (Mouse)
+    0xA1, 0x01,        // Collection (Application)
+    0x85, 0x01,        // Report ID 1 for mouse
+    0x09, 0x01,        //   Usage (Pointer)
+    0xA1, 0x00,        //   Collection (Physical)
+
+    0x05, 0x01,        //     Usage Page (Generic Desktop Ctrls)
+    0x09, 0x30,        //     Usage (X)
+    0x09, 0x31,        //     Usage (Y)
+    0x15, 0x80,        //     Logical Minimum (-128)
+    0x25, 0x7F,        //     Logical Maximum (127)
+    0x75, 0x08,        //     Report Size (8)
+    0x95, 0x02,        //     Report Count (2)
+    0x81, 0x06,        //     Input (Data,Var,Rel,No Wrap,Linear,Preferred State,No Null Position)
+
+    0x05, 0x09,        //     Usage Page (Button)
+    0x19, 0x01,        //     Usage Minimum (0x01)
+    0x29, 0x08,        //     Usage Maximum (0x08)
+    0x15, 0x00,        //     Logical Minimum (0)
+    0x25, 0x01,        //     Logical Maximum (1)
+    0x95, 0x08,        //     Report Count (8)
+    0x75, 0x01,        //     Report Size (1)
+    0x81, 0x02,        //     Input (Data,Var,Abs,No Wrap,Linear,Preferred State,No Null Position)
+
+    0xC0,              //   End Collection
+    0xC0,              // End Collection
+};
+
+double get_time_ms(void) {
+    return GetTickCount();
+}
+
 int main(void)
 {
+    /////
     // Hi-res timing, no stdout buffering.
+    /////
     
     timeBeginPeriod(1);
     setvbuf(stdout, NULL, _IOFBF, 4096);
     
+    /////
     // Find our device.
+    /////
     
     HANDLE hidHandle = get_my_hid_device();
     if (hidHandle == INVALID_HANDLE_VALUE)
@@ -175,8 +221,10 @@ int main(void)
     
     HidD_SetNumInputBuffers(hidHandle, 512);
     
+    /////
     // Build an invisible background window and hook raw input up to it.
     // We need this to get return messages back from the device.
+    /////
     
     HINSTANCE inst = GetModuleHandle(NULL);
     
@@ -202,12 +250,17 @@ int main(void)
     
     MSG msg; // For return messages.
     
+    /////
     // Write the "Hello, world!" output and wait for the response.
+    /////
     
     BYTE outputReport[CMDLEN] = {0};
     outputReport[0] = 0x7E;
     outputReport[1] = CMD_REQ_HELLOWORLD;
 
+    // NOTE: HidD_SetOutputReport blocks until a USB round trip completes, maybe multiple?
+    // So it isn't appropriate for sending input reports at 1000hz.
+    // When we get around to input reports later, we use WriteFile with OVERLAP instead.
     if (!HidD_SetOutputReport(hidHandle, outputReport, sizeof(outputReport)))
         printf("HidD_SetOutputReport failed: %lu\n", GetLastError());
     else
@@ -220,4 +273,109 @@ int main(void)
         if (msg.message == WM_INPUT)
             handle_input(msg);
     }
+    
+    /////
+    // Change the device descriptor and reacquire the device.
+    /////
+    
+    outputReport[1] = CMD_START_DESC;
+    HidD_SetOutputReport(hidHandle, outputReport, sizeof(outputReport));
+    
+    outputReport[1] = CMD_APPEND_DESC;
+    outputReport[2] = sizeof(hid_report_descriptor_alt);
+    for (size_t i = 0; i < sizeof(hid_report_descriptor_alt); i++)
+        outputReport[i+3] = hid_report_descriptor_alt[i];
+    HidD_SetOutputReport(hidHandle, outputReport, sizeof(outputReport));
+    
+    outputReport[1] = CMD_FINALIZE_DESC;
+    HidD_SetOutputReport(hidHandle, outputReport, sizeof(outputReport));
+    
+    puts("Waiting for reenumeration...");
+    fflush(stdout);
+    
+    Sleep(100);
+    hidHandle = get_my_hid_device();
+    // The device might not actually be fully reconnected yet, so we have to wait in a loop.
+    // This usually takes ~500ms, but sometimes it takes a second or two.
+    // TODO: Fail out after ~10 seconds.
+    while (hidHandle == INVALID_HANDLE_VALUE)
+    {
+        printf("Trying again...\n");
+        fflush(stdout);
+        Sleep(100);
+        hidHandle = get_my_hid_device();
+    }
+    
+    /////
+    // Start sending input commands to the reconfigured device.
+    /////
+    
+    puts("Starting test...");
+    fflush(stdout);
+    
+    // Just waiting on the most recent sent event causes events to be limited to like, 500hz for some reason?
+    // So we need to have a ring buffer of dispatched events and only block when the oldest one hasn't finished yet.
+    OVERLAPPED ov[16];
+    memset(ov, 0, sizeof(ov));
+    
+    int j = 0;
+    while (j < 3000)
+    {
+        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+        {
+            if (msg.message == WM_INPUT)
+                handle_input(msg);
+        }
+        
+        j++;
+        
+        memset(outputReport + 1, 0, sizeof(outputReport) - 1);
+        
+        int i = 1;
+        outputReport[i++] = CMD_PACKED;
+        
+        outputReport[i++] = 1;
+        outputReport[i++] = CMD_RUNTIME_START;
+        
+        outputReport[i++] = 6; // subcmd len
+        outputReport[i++] = CMD_RUNTIME_APPEND;
+        outputReport[i++] = 4; // len
+        outputReport[i++] = 1; // mouse report id
+        outputReport[i++] = round(sin(j*0.01)*1.4); // data
+        outputReport[i++] = round(cos(j*0.01)*1.4);
+        outputReport[i++] = 0;
+        
+        outputReport[i++] = 1;
+        outputReport[i++] = CMD_RUNTIME_END;
+        
+        outputReport[i++] = 0;
+        assert(i <= CMDLEN-1);
+        
+        uint64_t start = (uint64_t)get_time_ms();
+        
+        HANDLE ev = CreateEvent(NULL, TRUE, FALSE, NULL);;
+        
+        start = (uint64_t)get_time_ms();
+        
+        // wait on whatever event we're about to overlap
+        if (ov[j&0xF].hEvent)
+        {
+            WaitForSingleObject(ov[j&0xF].hEvent, 100);
+            // FIXME handle edge case if it falls off the end of the queue even after a 100ms of waiting
+            CloseHandle(ov[j&0xF].hEvent);
+        }
+        
+        OVERLAPPED temp = {0};
+        ov[j&0xF] = temp;
+        ov[j&0xF].hEvent = ev;
+        
+        DWORD bytesWritten = 0;
+        WriteFile(hidHandle, outputReport, sizeof(outputReport), &bytesWritten, &ov[j&0xF]);
+        
+        uint64_t end = (uint64_t)get_time_ms();
+        
+        printf("Output report sent (%zu) (started at %zu)\n", end, start);
+        fflush(stdout);
+    }
+    
 }
